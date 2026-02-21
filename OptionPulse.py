@@ -5,25 +5,38 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 
-# Set Streamlit Page Configuration
-st.set_page_config(page_title="Unusual Options Flow Scanner", layout="wide", page_icon="📈")
+# --- SETTINGS ---
+st.set_page_config(page_title="VolSight Scanner", layout="wide", page_icon="⚡")
 
-st.title("🦅 Ultimate Unusual Options Flow Scanner")
-st.markdown("""
-Identify unusual options activity by scanning for high **Volume to Open Interest (Vol/OI)** ratios. 
-*Note: Yahoo Finance options data may be delayed by 15-20 minutes.*
-""")
+st.title("⚡ VolSight: Unusual Options Flow")
+
+# --- HELP MENU (EXPANDER) ---
+with st.expander("📖 How to Read This Scanner & Column Definitions", expanded=False):
+    st.markdown("""
+    ### 🕵️‍♂️ How to find "The Smart Money"
+    You are looking for huge bets placed by institutions or insiders. Look for rows where the **🚨 Vol/OI** is extremely high (e.g., over 5.0), and the **🎯 Moneyness** is high (e.g., over 10%). This means someone made a massive, aggressive bet that the stock will move significantly before the **⏱️ DTE** (Days to Expiration) runs out.
+    
+    ### 📊 Column Glossary (Look for the Emojis!)
+    *   **🚨 Vol/OI (Most Important!):** Volume divided by Open Interest. A ratio of 5.0 means 5x the normal amount of contracts were traded today. This flags unusual activity!
+    *   **📈 Type:** Call (Betting stock goes UP) vs. Put (Betting stock goes DOWN).
+    *   **🎯 Moneyness (%):** How aggressive the bet is. If this is 15%, the stock needs to move 15% for the bet to break even. High moneyness + High Vol/OI = Highly aggressive Whale.
+    *   **⏱️ DTE:** Days to Expiration. How much time the bet has to play out. Low DTE (1-14 days) implies an immediate expected catalyst (like earnings or news).
+    *   **Volume:** Total contracts traded *today*.
+    *   **openInterest:** Contracts that were sitting open *before* today.
+    *   **Spot Price:** The current actual price of the stock.
+    *   **strike:** The target price the option is betting on.
+    """)
 
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.header("Scan Parameters")
 
 # Preset Market Universes
 MARKET_UNIVERSES = {
-    "Custom List": [],
-    "Top 20 Market Leaders (Tech & Index)": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "NFLX", "AVGO", "SMCI", "PLTR", "COIN", "MARA", "UBER", "DIS", "BA"],
+    "Top 20 Market Leaders": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "NFLX", "AVGO", "SMCI", "PLTR", "COIN", "MARA", "UBER", "DIS", "BA"],
     "Financials & Banks": ["JPM", "BAC", "GS", "MS", "C", "WFC", "V", "MA", "PYPL", "SQ"],
     "Healthcare & Pharma": ["UNH", "JNJ", "LLY", "MRK", "ABBV", "PFE", "AMGN", "GILD"],
-    "High Volatility / Meme": ["GME", "AMC", "RIVN", "LCID", "SOFI", "HOOD", "CVNA", "UPST"]
+    "High Volatility / Meme": ["GME", "AMC", "RIVN", "LCID", "SOFI", "HOOD", "CVNA", "UPST"],
+    "Custom List": []
 }
 
 universe_choice = st.sidebar.selectbox("Select Market Universe to Scan", list(MARKET_UNIVERSES.keys()))
@@ -47,7 +60,7 @@ otm_only = st.sidebar.checkbox("Only Show Out-of-the-Money (OTM)", value=True)
 max_expirations = st.sidebar.slider("Max Expirations to Check per Ticker", 1, 10, 4)
 
 # --- HELPER FUNCTIONS ---
-@st.cache_data(ttl=300) # Cache for 5 mins to prevent spamming Yahoo Finance
+@st.cache_data(ttl=300) 
 def get_spot_price(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -79,7 +92,6 @@ def fetch_options_data(tickers, max_exp, min_vol, min_ratio, max_dte, otm_only):
             continue
             
         for exp in expirations:
-            # Calculate DTE
             exp_date = datetime.strptime(exp, "%Y-%m-%d").date()
             today = datetime.today().date()
             dte = (exp_date - today).days
@@ -92,7 +104,6 @@ def fetch_options_data(tickers, max_exp, min_vol, min_ratio, max_dte, otm_only):
                 calls = opt_chain.calls
                 puts = opt_chain.puts
                 
-                # Add metadata
                 calls['Type'] = 'Call'
                 puts['Type'] = 'Put'
                 
@@ -101,29 +112,23 @@ def fetch_options_data(tickers, max_exp, min_vol, min_ratio, max_dte, otm_only):
                 if chain.empty:
                     continue
                 
-                # Basic cleaning
                 chain['Ticker'] = ticker_sym
                 chain['Spot Price'] = spot_price
                 chain['DTE'] = dte
                 chain['Expiration'] = exp
                 
-                # Calculate Vol/OI Ratio (Avoid division by zero by clipping OI to 1)
                 chain['Vol/OI'] = chain['volume'] / chain['openInterest'].clip(lower=1)
                 
-                # Calculate Moneyness (% out of the money)
-                # Calls: (Strike - Spot) / Spot | Puts: (Spot - Strike) / Spot
                 chain['Moneyness (%)'] = np.where(
                     chain['Type'] == 'Call',
                     (chain['strike'] - chain['Spot Price']) / chain['Spot Price'] * 100,
                     (chain['Spot Price'] - chain['strike']) / chain['Spot Price'] * 100
                 )
                 
-                # OTM check
                 chain['Is_OTM'] = chain['Moneyness (%)'] > 0
-                
                 all_data.append(chain)
-            except Exception as e:
-                pass # Skip problematic chains
+            except Exception:
+                pass
                 
         progress_bar.progress((i + 1) / total_tickers)
         
@@ -146,7 +151,6 @@ if st.sidebar.button("🚀 Run Flow Scanner"):
             if df.empty:
                 st.error("No data found. Try expanding your filters or checking your tickers.")
             else:
-                # Apply Filters
                 filtered_df = df[
                     (df['volume'] >= min_vol) & 
                     (df['Vol/OI'] >= min_vol_oi_ratio)
@@ -158,74 +162,78 @@ if st.sidebar.button("🚀 Run Flow Scanner"):
                 if filtered_df.empty:
                     st.warning("No options matched your strict filters. Try lowering minimum volume or Vol/OI.")
                 else:
-                    # Formatting the final Dataframe
-                    display_cols = ['Ticker', 'Type', 'Expiration', 'DTE', 'strike', 'Spot Price', 
-                                    'Moneyness (%)', 'lastPrice', 'volume', 'openInterest', 'Vol/OI', 'impliedVolatility']
+                    # Rename columns to add Emojis for the critical ones
+                    filtered_df = filtered_df.rename(columns={
+                        'Vol/OI': '🚨 Vol/OI',
+                        'Type': '📈 Type',
+                        'Moneyness (%)': '🎯 Moneyness (%)',
+                        'DTE': '⏱️ DTE'
+                    })
                     
-                    final_df = filtered_df[display_cols].sort_values(by='Vol/OI', ascending=False).reset_index(drop=True)
+                    display_cols = ['Ticker', '📈 Type', 'Expiration', '⏱️ DTE', 'strike', 'Spot Price', 
+                                    '🎯 Moneyness (%)', 'lastPrice', 'volume', 'openInterest', '🚨 Vol/OI']
                     
-                    # Rounding and formatting for display
-                    final_df['Moneyness (%)'] = final_df['Moneyness (%)'].round(2)
-                    final_df['Vol/OI'] = final_df['Vol/OI'].round(2)
-                    final_df['impliedVolatility'] = (final_df['impliedVolatility'] * 100).round(2).astype(str) + '%'
+                    final_df = filtered_df[display_cols].sort_values(by='🚨 Vol/OI', ascending=False).reset_index(drop=True)
+                    
+                    # Rounding
+                    final_df['🎯 Moneyness (%)'] = final_df['🎯 Moneyness (%)'].round(2)
+                    final_df['🚨 Vol/OI'] = final_df['🚨 Vol/OI'].round(2)
                     
                     # --- METRICS DASHBOARD ---
                     st.subheader("📊 Flow Overview")
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Total Unusual Contracts", len(final_df))
-                    col2.metric("Highest Vol/OI", final_df['Vol/OI'].max())
-                    col3.metric("Call Flow Count", len(final_df[final_df['Type'] == 'Call']))
-                    col4.metric("Put Flow Count", len(final_df[final_df['Type'] == 'Put']))
+                    col2.metric("Highest Vol/OI", final_df['🚨 Vol/OI'].max())
+                    col3.metric("Call Flow Count", len(final_df[final_df['📈 Type'] == 'Call']))
+                    col4.metric("Put Flow Count", len(final_df[final_df['📈 Type'] == 'Put']))
 
                     # --- VISUALIZATION ---
                     st.subheader("🌌 Options Flow Map (Bubble size = Volume)")
-                    
-                    # Create scatter plot
                     fig = px.scatter(
                         final_df, 
-                        x="DTE", 
+                        x="⏱️ DTE", 
                         y="strike", 
                         size="volume", 
-                        color="Vol/OI",
+                        color="🚨 Vol/OI",
                         hover_name="Ticker",
-                        hover_data=["Type", "Expiration", "Moneyness (%)", "openInterest"],
-                        symbol="Type",
+                        hover_data=["📈 Type", "Expiration", "🎯 Moneyness (%)", "openInterest"],
+                        symbol="📈 Type",
                         color_continuous_scale=px.colors.sequential.YlOrRd,
                         title="Unusual Activity: Strike vs. Days to Expiration"
                     )
-                    
-                    # Improve chart appearance
-                    fig.update_layout(
-                        xaxis_title="Days to Expiration (DTE)",
-                        yaxis_title="Strike Price ($)",
-                        template="plotly_dark"
-                    )
+                    fig.update_layout(xaxis_title="Days to Expiration (DTE)", yaxis_title="Strike Price ($)", template="plotly_dark")
                     st.plotly_chart(fig, use_container_width=True)
 
                     # --- DATA TABLE ---
                     st.subheader("🔥 Unusual Options Activity Ledger")
                     
-                    # Pandas styling to highlight extreme Vol/OI ratios
+                    # Custom Pandas Styling
                     def style_dataframe(row):
                         styles = [''] * len(row)
-                        # Highlight high Vol/OI
-                        if row['Vol/OI'] > 10:
-                            styles[row.index.get_loc('Vol/OI')] = 'background-color: rgba(255, 50, 50, 0.4); color: white; font-weight: bold'
-                        elif row['Vol/OI'] > 5:
-                            styles[row.index.get_loc('Vol/OI')] = 'background-color: rgba(255, 165, 0, 0.4); font-weight: bold'
                         
-                        # Color code Call/Put
-                        if row['Type'] == 'Call':
-                            styles[row.index.get_loc('Type')] = 'color: #00FF00; font-weight: bold' # Green
+                        # Find index of important columns dynamically
+                        vol_oi_idx = row.index.get_loc('🚨 Vol/OI')
+                        type_idx = row.index.get_loc('📈 Type')
+                        
+                        # 1. Color the entire Vol/OI column to make it pop
+                        val = row['🚨 Vol/OI']
+                        if val > 10:
+                            styles[vol_oi_idx] = 'background-color: rgba(255, 50, 50, 0.6); color: white; font-weight: bold'
+                        elif val > 5:
+                            styles[vol_oi_idx] = 'background-color: rgba(255, 165, 0, 0.5); font-weight: bold'
                         else:
-                            styles[row.index.get_loc('Type')] = 'color: #FF0000; font-weight: bold' # Red
+                            styles[vol_oi_idx] = 'background-color: rgba(255, 255, 255, 0.1); font-weight: bold'
+                            
+                        # 2. Color code Call (Green) / Put (Red)
+                        if row['📈 Type'] == 'Call':
+                            styles[type_idx] = 'color: #00FF00; font-weight: bold'
+                        else:
+                            styles[type_idx] = 'color: #FF0000; font-weight: bold'
                             
                         return styles
 
+                    # Apply styling and formatting
                     styled_df = final_df.style.apply(style_dataframe, axis=1) \
                                         .format({'Spot Price': '${:.2f}', 'strike': '${:.2f}', 'lastPrice': '${:.2f}'})
 
-                    st.dataframe(styled_df, use_container_width=True, height=500)
-                    
-
-                    st.caption("How to read this: 'Vol/OI' measures how many times the daily trading volume exceeded the existing Open Interest. Values over 1.0 are notable. Values over 5.0 are highly unusual.")
+                    st.dataframe(styled_df, use_container_width=True, height=600)
