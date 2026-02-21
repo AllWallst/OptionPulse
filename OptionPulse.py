@@ -17,12 +17,26 @@ Identify unusual options activity by scanning for high **Volume to Open Interest
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.header("Scan Parameters")
 
-# Ticker Input
-tickers_input = st.sidebar.text_input(
-    "Tickers (comma separated)", 
-    "NVDA, TSLA, AAPL, AMD, PLTR, SPY"
-)
-tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+# Preset Market Universes
+MARKET_UNIVERSES = {
+    "Custom List": [],
+    "Top 20 Market Leaders (Tech & Index)": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD", "NFLX", "AVGO", "SMCI", "PLTR", "COIN", "MARA", "UBER", "DIS", "BA"],
+    "Financials & Banks": ["JPM", "BAC", "GS", "MS", "C", "WFC", "V", "MA", "PYPL", "SQ"],
+    "Healthcare & Pharma": ["UNH", "JNJ", "LLY", "MRK", "ABBV", "PFE", "AMGN", "GILD"],
+    "High Volatility / Meme": ["GME", "AMC", "RIVN", "LCID", "SOFI", "HOOD", "CVNA", "UPST"]
+}
+
+universe_choice = st.sidebar.selectbox("Select Market Universe to Scan", list(MARKET_UNIVERSES.keys()))
+
+if universe_choice == "Custom List":
+    tickers_input = st.sidebar.text_input(
+        "Enter Tickers (comma separated)", 
+        "NVDA, TSLA, AAPL, SPY"
+    )
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+else:
+    tickers = MARKET_UNIVERSES[universe_choice]
+    st.sidebar.info(f"Scanning {len(tickers)} stocks in this universe.")
 
 # Filters
 st.sidebar.subheader("Filters")
@@ -30,7 +44,7 @@ min_vol = st.sidebar.number_input("Minimum Volume", min_value=10, value=500, ste
 min_vol_oi_ratio = st.sidebar.number_input("Minimum Vol/OI Ratio", min_value=0.1, value=2.0, step=0.5)
 max_dte = st.sidebar.number_input("Max Days to Expiration (DTE)", min_value=1, value=60, step=7)
 otm_only = st.sidebar.checkbox("Only Show Out-of-the-Money (OTM)", value=True)
-max_expirations = st.sidebar.slider("Max Expirations to Check per Ticker", 1, 20, 5)
+max_expirations = st.sidebar.slider("Max Expirations to Check per Ticker", 1, 10, 4)
 
 # --- HELPER FUNCTIONS ---
 @st.cache_data(ttl=300) # Cache for 5 mins to prevent spamming Yahoo Finance
@@ -213,4 +227,5 @@ if st.sidebar.button("🚀 Run Flow Scanner"):
 
                     st.dataframe(styled_df, use_container_width=True, height=500)
                     
+
                     st.caption("How to read this: 'Vol/OI' measures how many times the daily trading volume exceeded the existing Open Interest. Values over 1.0 are notable. Values over 5.0 are highly unusual.")
